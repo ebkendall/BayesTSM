@@ -20,6 +20,14 @@ censor_times <- function(t) {
     return(new_time)
 }
 
+censor_times_btsm <- function(t) {
+    min_t = 0
+    max_t = floor(max(t))
+    new_time = seq(min_t, max_t, by = 1)
+    
+    return(new_time)
+}
+
 
 # Construct the transition rate matrix
 Q <- function(x_ik,beta){
@@ -246,4 +254,65 @@ for(ttt in 1:10) {
       rawData = rawData_added_rows
       save(rawData, file = paste0('Data/hmm_sim_extended', ttt, '_yes_inhomog.rda'))
   }
+  
+  # Adding Censored Rows for the piece-wise time inhomogeneous solution --------
+  # BayesTSM Data
+  load(paste0('Data/bayestsm_dat', ttt, '.rda'))
+  disc_time <- sapply(bayestsm_dat$time, floor)
+  
+  obstrue <- rep(0,nrow(bayestsm_dat))
+  
+  hold <- cbind(bayestsm_dat,obstrue,disc_time)
+  
+  tempRow <- rep(0,ncol(hold))
+  names(tempRow) <- colnames(hold)
+  
+  num <- 1
+  bayestsm_dat_added_rows <- NULL
+  for(i in unique(bayestsm_dat$id)){
+      
+      current <- NULL
+      subject <- hold[hold$id==i,,drop=FALSE]
+      
+      #------------------------------------
+      censoredAges <- censor_times_btsm(subject$time)
+      
+      for(t in censoredAges ){
+          
+          # Rounding t, subject$time, & subject$disc_time to make sure we have equality
+          t_round = round(t, digits = 5)
+          yrs_round = round(subject$time, digits = 5)
+          disc_round = round(subject$disc_time, digits = 5)
+          
+          # If 't' corresponds to an observed age, then the next row will include the observed clinical visit data.
+          if(t_round %in% yrs_round){
+              current <- rbind( current, subject[disc_round==round(floor(t), digits=5),])
+          } else{
+              
+              # Create a CENSORED row for each subject at each discritezed time.
+              tempRow['id'] <- i
+              tempRow['time'] <- t
+              tempRow['Z.1'] <- subject$Z.1[1]
+              tempRow['Z.2'] <- subject$Z.2[1]
+              tempRow['state'] <- 99
+              tempRow['obstrue'] <- 1
+              tempRow['disc_time'] <- t
+              
+              current <- rbind( current, tempRow)
+              
+              # If 't' corresponds to an observed INTEGER years, then the subject was observed some time during this years.  According, the next row will include the observed clinical visit data.  Recall that integer years is simply the floor(years).
+              if(t_round %in% disc_round){ current <- rbind( current, subject[disc_round==t_round,])}
+          }
+          
+      }
+      #------------------------------------
+      
+      bayestsm_dat_added_rows <- rbind( bayestsm_dat_added_rows, current)
+      num <- num+1
+  }
+  colnames(bayestsm_dat_added_rows) <- colnames(hold)
+  rownames(bayestsm_dat_added_rows) <- NULL
+  
+  bayestsm_dat = bayestsm_dat_added_rows
+  save(bayestsm_dat, file = paste0('Data/bayestsm_dat_extended', ttt, '.rda'))
 }
