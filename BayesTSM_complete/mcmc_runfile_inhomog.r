@@ -9,9 +9,9 @@ print(seed_num)
 ind = 1
 trial_num = 1
 
-simulation = T
-no_s2_s3 = F
-disc = T
+simulation = F
+no_s2_s3 = T
+disc = F
 
 if(simulation) {
     init_par = c(  3,  0.5, 0.5, 0.5, # beta(0, x), beta(1, x), beta(2, x), beta(2, x_time)
@@ -54,10 +54,14 @@ if(simulation) {
         print("E")
         load(paste0("Data/bayestsm_dat_extended", ind, ".rda"))
         temp_data = as.matrix(bayestsm_dat); rownames(temp_data) = NULL
+        temp_data[, "time"] = temp_data[, "time"] / 100
+        temp_data[, "disc_time"] = temp_data[, "disc_time"] / 100
     } else {
         print("F")
         load(paste0("Data/bayestsm_dat", ind, ".rda"))
         temp_data = as.matrix(bayestsm_dat); rownames(temp_data) = NULL
+        temp_data[, "time"] = temp_data[, "time"] / 100
+        # temp_data[, "disc_time"] = temp_data[, "disc_time"] / 100
     }
 }
 

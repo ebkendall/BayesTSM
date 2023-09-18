@@ -2,12 +2,13 @@
 library(tidyverse)
 library(gridExtra)
 library(expm)
+library(deSolve)
 
 trial_num = 1
 
-simulation = T
+simulation = F
 no_s2_s3 = F
-disc = F
+disc = T
 
 # Size of posterior sample from mcmc chains
 n_post = 15000
@@ -144,21 +145,6 @@ dev.off()
 # ------------------------------------------------------------------------------
 # Passage Probabilities --------------------------------------------------------
 # ------------------------------------------------------------------------------
-library(deSolve)
-
-Q <- function(x_ik,beta){
-
-    betaMat = matrix(beta, ncol = 4, byrow = T)
-    q_x  = exp(c(1,x_ik) %*% betaMat[1,])  # Transition from state 1 to state 2
-    q_t  = exp(c(1,x_ik) %*% betaMat[2,])  # Transition from state 2 to state 3
-
-    qmat = matrix(c( 0,q_x,  0,
-                     0,  0,q_t,
-                     0,  0,  0), nrow=3, byrow = T)
-    diag(qmat) = -rowSums(qmat)
-
-    return(qmat)
-}
 
 pdf_title = NULL
 
@@ -186,6 +172,57 @@ if(simulation){
 
 pdf(pdf_title)
 par(mfrow=c(2, 2)) 
+
+# ------------------------------------------------------------------------------
+# Load the dataset we are investigating ----------------------------------------
+# ------------------------------------------------------------------------------
+if(simulation) {
+    if(no_s2_s3) {
+        if(disc) {
+            print("A")
+            load(paste0("Data/hmm_sim_extended", ind, "_no_inhomog.rda"))
+            myData = rawData
+        } else {
+            print("B")
+            load(paste0("Data/hmm_sim", ind, "_no_inhomog.rda"))
+            myData = rawData
+        }
+    } else {
+        if(disc) {
+            print("C")
+            load(paste0("Data/hmm_sim_extended", ind, "_yes_inhomog.rda"))
+            myData = rawData
+        } else {
+            print("D")
+            load(paste0("Data/hmm_sim", ind, "_yes_inhomog.rda"))
+            myData = rawData
+        }
+    }
+} else {
+    if(disc) {
+        print("E")
+        load(paste0("Data/bayestsm_dat_extended", ind, ".rda"))
+        myData = bayestsm_dat
+    } else {
+        print("F")
+        load(paste0("Data/bayestsm_dat", ind, ".rda"))
+        myData = bayestsm_dat
+    }
+}
+
+Q <- function(x_ik,beta){
+
+    betaMat = matrix(beta, ncol = 4, byrow = T)
+    q_x  = exp(c(1,x_ik) %*% betaMat[1,])  # Transition from state 1 to state 2
+    q_t  = exp(c(1,x_ik) %*% betaMat[2,])  # Transition from state 2 to state 3
+
+    qmat = matrix(c( 0,q_x,  0,
+                     0,  0,q_t,
+                     0,  0,  0), nrow=3, byrow = T)
+    diag(qmat) = -rowSums(qmat)
+
+    return(qmat)
+}
 
 hmm_solver_P <-function(pars, t_i, x_i) {
     
@@ -225,11 +262,11 @@ prob_evolution_hmmsolver <- function(state_from, state_to, z1, z2, par){
     
     t_seq = NULL
     if(state_to == 2) {
-        t_seq = seq(0, 100, length.out=100)
+        t_seq = seq(0, 0.50, length.out=100)
     } else {
-        t_seq = seq(0, 20, length.out=100)
+        t_seq = seq(0, 0.50, length.out=100)
     }
-
+    
     probEvo = rep(NA,length(t_seq))
     
     P = rep(0,3)
@@ -238,10 +275,9 @@ prob_evolution_hmmsolver <- function(state_from, state_to, z1, z2, par){
     
     for(t in 2:length(t_seq)) {
         beta = par
-        new_P = hmm_solver_P(par, c(0,t_seq[t]), cov_vals)
+        new_P = hmm_solver_P(par, c(0,t_seq[t]), c(z1, z2))
         P_t = P %*% new_P
         
-        # probEvo[index] = sum(P[state_to]) / sum(P[c(state_from, state_to)])
         if(state_to == 2) {
             probEvo[index] = P_t[state_to] + P_t[state_to+1]   
         } else {
@@ -251,51 +287,46 @@ prob_evolution_hmmsolver <- function(state_from, state_to, z1, z2, par){
         index = index + 1
     }
     
-    # cum_prob_evo = matrix(rep(t_seq, 2), ncol = 2)
-    # cum_prob_evo[,2] = probEvo
+    return(probEvo)
+}
+
+prob_evolution_expm <- function(state_from, state_to, z1, z2, par) {
+    
+    # The t_seq needs to account for when the transition matrix is changing
+    # In the case of simulation
+    t_seq = NULL
+    if(state_to == 2) {
+        t_seq = seq(0, 0.50, length.out=100)
+    } else {
+        t_seq = seq(0, 0.50, length.out=100)
+    }
+    
+    probEvo = rep(NA,length(t_seq))
+    
+    P = rep(0,3)
+    P[state_from] = 1
+    index = 1
+    
+    for(t in 2:length(t_seq)) {
+        beta = par
+        Q_mat = Q(c(z1, z2, t_seq[t-1]), par)
+        new_P = expm((t_seq[t] - t_seq[t-1]) * Q_mat)
+        P = P %*% new_P
+        
+        if(state_to == 2) {
+            probEvo[index] = P[state_to] + P[state_to+1]   
+        } else {
+            probEvo[index] = P[state_to]
+        }
+        
+        index = index + 1
+    }
     
     return(probEvo)
 }
 
-t.x = seq(0, 100, length.out=100)
-t.y =  seq(0, 20, length.out=100)
-
-# ------------------------------------------------------------------------------
-# Load the dataset we are investigating ----------------------------------------
-# ------------------------------------------------------------------------------
-if(simulation) {
-    if(no_s2_s3) {
-        if(disc) {
-            print("A")
-            load(paste0("Data/hmm_sim_extended", ind, "_no_inhomog.rda"))
-            myData = rawData
-        } else {
-            print("B")
-            load(paste0("Data/hmm_sim", ind, "_no_inhomog.rda"))
-            myData = rawData
-        }
-    } else {
-        if(disc) {
-            print("C")
-            load(paste0("Data/hmm_sim_extended", ind, "_yes_inhomog.rda"))
-            myData = rawData
-        } else {
-            print("D")
-            load(paste0("Data/hmm_sim", ind, "_yes_inhomog.rda"))
-            myData = rawData
-        }
-    }
-} else {
-    if(disc) {
-        print("E")
-        load(paste0("Data/bayestsm_dat_extended", ind, ".rda"))
-        myData = bayestsm_dat
-    } else {
-        print("F")
-        load(paste0("Data/bayestsm_dat", ind, ".rda"))
-        myData = bayestsm_dat
-    }
-}
+t.x = seq(0, 0.50, length.out=100) # seq(0, 100, length.out=100)
+t.y = seq(0, 0.50, length.out=100) # seq(0, 20, length.out=100)
 
 # create an empty matrix to store CDFs for each unique covariate combination
 unique_ids = unique(myData[,'id'])
@@ -303,11 +334,17 @@ cdf.x = cdf.y = matrix(nrow = length(unique_ids), ncol = 100)
 
 par = colMeans(stacked_chains)
 for(i in 1:nrow(cdf.x)) {
+    print(i)
     subDat = myData[myData[,'id'] == unique_ids[i], ]
     z_1 = subDat[1,'Z.1']
     z_2 = subDat[1,'Z.2']
-    cdf.x[i,] = prob_evolution_hmmsolver(1, 2, z_1, z_2, par)
-    cdf.y[i,] = prob_evolution_hmmsolver(2, 3, z_1, z_2, par)
+    if(disc) {
+        cdf.x[i,] = prob_evolution_expm(1, 2, z_1, z_2, par)
+        cdf.y[i,] = prob_evolution_expm(2, 3, z_1, z_2, par)
+    } else {
+        cdf.x[i,] = prob_evolution_hmmsolver(1, 2, z_1, z_2, par)
+        cdf.y[i,] = prob_evolution_hmmsolver(2, 3, z_1, z_2, par)
+    }
 }
 
 
@@ -315,6 +352,7 @@ for(i in 1:nrow(cdf.x)) {
 plot(t.x,colMeans(cdf.x),type="l",col=1,lty=1,lwd=2,ylim=c(0,1),
      xlab="time since entry in state 1",ylab="CDF",
      main = "Transition from state 1 to 2")
+lines(t.x, colMeans(cdf.y), col = 'red', lty=1,lwd=2,ylim=c(0,1))
 
 if(!simulation){
     lines(ecdf(dat.bayestsm$X),col=2,lwd=2)   # True empirical CDF (data)

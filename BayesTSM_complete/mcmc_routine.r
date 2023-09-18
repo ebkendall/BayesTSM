@@ -52,7 +52,9 @@ fn_log_post_R <- function(pars, prior_par, par_index, x, y, t, id, eids) {
     log_total_val = foreach(i=unique(id), .combine='+', 
                             .export = c("hmm_solver_P"), 
                             .packages = c("deSolve", "expm")) %dopar% { 
-                                
+
+        val = 1
+        log_norm = 0
         y_i = y[id == i]                
         x_i = x[id == i, ,drop = F] 
         t_i = t[id == i]
@@ -65,10 +67,15 @@ fn_log_post_R <- function(pars, prior_par, par_index, x, y, t, id, eids) {
             # Time In-homogeneous Transition Matrix --------------------
             P = hmm_solver_P(pars, par_index, t_i, x_i, k)
             D = diag(resp_fnc[,y_i[k]])
-            f_i = f_i %*% P %*% D
+            val = f_i %*% P %*% D
+            # f_i = f_i %*% P %*% D
+
+            norm_val = sqrt(sum(val^2))
+            f_i = val / norm_val
+            log_norm = log_norm + log(norm_val)
         }
                                 
-        return(log(sum(f_i)))
+        return(log(sum(f_i)) + log_norm)
     }
     
     
